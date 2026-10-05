@@ -2,7 +2,6 @@ import re, subprocess
 import numpy as np
 from . import config
 
-_MODEL = None
 CLEAN = re.compile(r"[¿?¡!,.;:\"“”()\[\]…]+")
 
 
@@ -37,10 +36,7 @@ def load_audio(path):
 def transcribe(audio_path, total):
     from faster_whisper import WhisperModel
     audio = load_audio(audio_path)
-    global _MODEL
-    if _MODEL is None:
-        _MODEL = WhisperModel(config.WHISPER_MODEL, device="cpu", compute_type="int8")
-    model = _MODEL
+    model = WhisperModel(config.WHISPER_MODEL, device="cpu", compute_type="int8")
     segs, _ = model.transcribe(
         audio, language="es", word_timestamps=True, vad_filter=False,
         beam_size=5, best_of=5, condition_on_previous_text=False,

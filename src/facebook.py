@@ -2,7 +2,7 @@ import os, time, requests
 from . import config as C
 
 
-def publish_reel(video_path, description, scheduled_ts=None):
+def publish_reel(video_path, description):
     page, token = os.environ["FB_PAGE_ID"], os.environ["FB_PAGE_TOKEN"]
     base = f"https://graph.facebook.com/{C.GRAPH_VERSION}/{page}/video_reels"
 
@@ -19,16 +19,14 @@ def publish_reel(video_path, description, scheduled_ts=None):
         raise RuntimeError(f"Fallo la subida: {u.status_code} {u.text}")
 
     data = {"access_token": token, "video_id": video_id, "upload_phase": "finish",
-            "video_state": "SCHEDULED" if scheduled_ts else "PUBLISHED"}
-    if scheduled_ts:
-        data["scheduled_publish_time"] = str(int(scheduled_ts))
+            "video_state": "PUBLISHED"}
     if description:
         data["description"] = description
     f = requests.post(base, timeout=120, data=data)
     if not f.ok:
         raise RuntimeError(f"Fallo el publish: {f.status_code} {f.text}")
 
-    for _ in range(6 if scheduled_ts else 20):   # espera al procesamiento
+    for _ in range(20):                       # espera al procesamiento (hasta ~5 min)
         time.sleep(15)
         s = requests.get(f"https://graph.facebook.com/{C.GRAPH_VERSION}/{video_id}",
                          params={"fields": "status", "access_token": token}, timeout=60).json()

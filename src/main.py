@@ -1,35 +1,54 @@
-import datetime as dt, json, os, random, tempfile
+import datetime as dt, json, os, random, tempfile, time
 from . import config as C, drive, lyrics, render
 
 STATE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "used.json")
-UTC = dt.timezone.utc
 
 
-def load_state():
+def seconds_until_slot(now):
+    """Segundos a esperar hasta el horario de publicación más cercano (0 si ya pasó)."""
+    best = None
+    for day in (-1, 0, 1):
+        for h, m in C.SLOTS_UTC:
+            slot = (now + dt.timedelta(days=day)).replace(hour=h, minute=m, second=0, microsecond=0)
+            d = (slot - now).total_seconds()
+            if -90 * 60 <= d <= C.MAX_WAIT_MIN * 60 and (best is None or abs(d) < abs(best)):
+                best = d
+    return max(best, 0) if best is not None else 0
+
+
+def load_used():
     try:
-        d = json.load(open(STATE))
+        return json.load(open(STATE))["used"]
     except Exception:
-        d = {}
-    return d.get("used", []), d.get("slots", [])
+        return []
 
 
-def save_state(used, slots):
+def save_used(used):
     os.makedirs(os.path.dirname(STATE), exist_ok=True)
-    json.dump({"used": used, "slots": slots[-20:]}, open(STATE, "w"), indent=1)
+    json.dump({"used": used}, open(STATE, "w"), indent=1)
 
 
-def make_reel(files, audios, used, work):
-    """Elige canción, arma letra y fondo y renderiza. Devuelve (ruta_mp4, canción)."""
+def main():
+    t0 = dt.datetime.now(dt.timezone.utc)
+    dry = os.getenv("DRY_RUN") == "1"
+    now_mode = os.getenv("PUBLISH_NOW") == "true"
+    work = tempfile.mkdtemp()
+
+    files = drive.list_files()
+    audios = [f for f in files if drive.is_audio(f)]
+    if not audios:
+        raise SystemExit("No hay audios en la carpeta de Drive")
+    used = load_used()
     pool = [a for a in audios if a["id"] not in used]
     if not pool:                                # ya sonaron todos: reinicia la rotación
-        used.clear()
-        pool = audios
+        used, pool = [], audios
     song = random.choice(pool)
     print("Canción elegida:", song["name"])
 
     audio = drive.download(song, os.path.join(work, "audio" + os.path.splitext(song["name"])[1]))
     start = drive.start_offset(song["name"])
-    dur = min(C.MAX_SECONDS, render.audio_duration(audio) - start)
+    total = audio_len = render.audio_duration(audio)
+    dur = min(C.MAX_SECONDS, audio_len - start)
     if dur < 3:
         raise SystemExit("El audio (o el tramo elegido) dura menos de 3 s")
 
@@ -52,76 +71,31 @@ def make_reel(files, audios, used, work):
                          "con el email de la cuenta de servicio y que las fotos sean jpg, png o webp (no HEIC).")
     if len(imgs) > 4:
         imgs = random.sample(imgs, 4)           # cada reel usa 4 fotos distintas
-    photos = [drive.download(im, os.path.join(work, f"foto{i}{os.path.splitext(im['name'])[1] or '.jpg'}"))
-              for i, im in enumerate(imgs)]
+    photos = []
+    for i, im in enumerate(imgs):
+        photos.append(drive.download(im, os.path.join(work, f"foto{i}{os.path.splitext(im['name'])[1] or '.jpg'}")))
+    print("Fotos de fondo desde Drive:", len(photos))
 
-    out = os.path.join(work, f"reel_{random.randint(1000, 9999)}.mp4")
+    out = os.path.join(work, "reel.mp4")
     render.render(audio, start, dur, lines, work, out, photos)
-    return out, song
-
-
-def main():
-    now = dt.datetime.now(UTC)
-    dry = os.getenv("DRY_RUN") == "1"
-    now_mode = os.getenv("PUBLISH_NOW") == "true"
-    test_sched = os.getenv("TEST_SCHEDULE") == "true"
-    work = tempfile.mkdtemp()
-    used, done_slots = load_state()
-
-    files = drive.list_files()
-    audios = [f for f in files if drive.is_audio(f)]
-    if not audios:
-        raise SystemExit("No hay audios en la carpeta de Drive")
-    from . import facebook
+    tags = ""   # descripción vacía (sin hashtags)
 
     if dry:
-        out, _ = make_reel(files, audios, used, work)
         os.replace(out, "reel_preview.mp4")
         print("DRY_RUN: guardado reel_preview.mp4")
         return
 
-    if test_sched:                               # prueba: programar un reel para dentro de 30 min
-        out, song = make_reel(files, audios, used, work)
-        when = now + dt.timedelta(minutes=30)
-        vid = facebook.publish_reel(out, "", scheduled_ts=when.timestamp())
-        print(f"PRUEBA: reel {vid} programado para {when.isoformat()} (UTC). "
-              "Revisá en Meta Business Suite > Planificador que figure como programado.")
-        return
+    if not now_mode:
+        wait = seconds_until_slot(t0) - (dt.datetime.now(dt.timezone.utc) - t0).total_seconds()
+        if wait > 0:
+            print(f"Esperando {wait / 60:.1f} min hasta el horario de publicación...")
+            time.sleep(wait)
 
-    if now_mode:                                 # publicar ya (prueba manual)
-        out, song = make_reel(files, audios, used, work)
-        print("Publicado, video id:", facebook.publish_reel(out, ""))
-        used.append(song["id"]); save_state(used, done_slots)
-        return
-
-    # --- ejecución diaria: deja programados los reels de hoy (14:00 y 18:00 de Uruguay) ---
-    pending = []
-    for h, m in C.SLOTS_UTC:
-        slot = now.replace(hour=h, minute=m, second=0, microsecond=0)
-        if slot.isoformat() not in done_slots:
-            pending.append(slot)
-    if not pending:
-        print("Los reels de hoy ya están programados. Nada que hacer.")
-        return
-
-    for slot in pending:
-        target = slot + dt.timedelta(seconds=random.randint(0, C.JITTER_MIN * 60))
-        ahead = (target - dt.datetime.now(UTC)).total_seconds() / 60
-        if ahead < C.MIN_AHEAD_MIN and (dt.datetime.now(UTC) - slot).total_seconds() / 60 > C.LATE_LIMIT_MIN:
-            print(f"Horario {slot.isoformat()} ya pasó hace demasiado; se omite.")
-            done_slots.append(slot.isoformat())
-            continue
-        out, song = make_reel(files, audios, used, work)
-        ahead = (target - dt.datetime.now(UTC)).total_seconds() / 60
-        if ahead >= C.MIN_AHEAD_MIN:
-            vid = facebook.publish_reel(out, "", scheduled_ts=target.timestamp())
-            print(f"Reel {vid} programado en Facebook para {target.isoformat()} (UTC)")
-        else:
-            vid = facebook.publish_reel(out, "")
-            print(f"Reel {vid} publicado de inmediato (el horario ya estaba encima)")
-        used.append(song["id"])
-        done_slots.append(slot.isoformat())
-        save_state(used, done_slots)             # se guarda tras cada reel (los commits los hace el workflow)
+    from . import facebook
+    vid = facebook.publish_reel(out, tags)
+    print("Publicado, video id:", vid)
+    used.append(song["id"])
+    save_used(used)
 
 
 if __name__ == "__main__":

@@ -2,20 +2,15 @@ name: Reels diarios
 
 on:
   schedule:
-    # Uruguay = UTC-3. Estas ejecuciones DEJAN PROGRAMADOS en Facebook los reels de hoy
-    # (14:00 y 18:00 UY); Facebook los publica a la hora. El segundo disparo es de respaldo.
-    - cron: "17 10 * * *"   # 07:17 UY
-    - cron: "17 12 * * *"   # 09:17 UY (respaldo; si el primero ya programó, no hace nada)
+    # Uruguay = UTC-3. Arranca 15 min antes y el script espera al minuto exacto.
+    - cron: "45 16 * * *"   # publica 14:00 (UY)
+    - cron: "45 20 * * *"   # publica 18:00 (UY)
   workflow_dispatch:
     inputs:
       publish_now:
         description: "Publicar de inmediato (sin esperar el horario)"
         type: boolean
         default: true
-      test_schedule:
-        description: "Prueba: programar UN reel para dentro de 30 min (verifica que Facebook acepte programar)"
-        type: boolean
-        default: false
       dry_run:
         description: "Solo generar el video (no publica) y dejarlo como artefacto"
         type: boolean
@@ -31,7 +26,7 @@ permissions:
 jobs:
   reel:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -59,7 +54,6 @@ jobs:
           DRIVE_PHOTOS_FOLDER_ID: ${{ secrets.DRIVE_PHOTOS_FOLDER_ID }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
-          TEST_SCHEDULE: ${{ github.event_name == 'workflow_dispatch' && inputs.test_schedule }}
           PUBLISH_NOW: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_now }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
         run: python -m src.main
@@ -72,7 +66,7 @@ jobs:
           path: reel_preview.mp4
 
       - name: Guardar rotación de canciones
-        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         run: |
           [ -f state/used.json ] || { echo "Nada que guardar"; exit 0; }
           git config user.name "github-actions"
