@@ -31,8 +31,10 @@ WHISPER_MODEL = os.getenv("WHISPER_MODEL", "large-v3")   # small < medium < larg
 
 # ---- Publicación ----
 GRAPH_VERSION = os.getenv("GRAPH_VERSION", "v25.0")
-SLOTS_UTC = [(20, 0), (23, 0)]  # 17:00 y 20:00 de Uruguay (UTC-3)
-MAX_WAIT_MIN = 40
+SLOTS_UTC = [(17, 0), (21, 0)]  # 14:00 y 18:00 de Uruguay (UTC-3)
+LATE_LIMIT_MIN = 90             # si la ejecución llega tarde, publica de inmediato hasta 90 min después del horario
+JITTER_MIN = 8                  # publica en un minuto al azar entre HH:00 y HH:08 (0 = justo a la hora)
+MIN_AHEAD_MIN = 12              # Facebook exige programar con más de 10 min de anticipación
 
 HASHTAGS = [
     "#musica", "#canciones", "#letrasdecanciones", "#paradedicar",

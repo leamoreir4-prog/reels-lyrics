@@ -1,6 +1,6 @@
 # Reels lyrics automáticos → Facebook (GitHub Actions)
 
-Todos los días a las **17:00 y 20:00 (Uruguay)** genera un reel de máx. 25 s (o hasta donde termine el audio) y lo publica en tu **Página** de Facebook.
+Todos los días a las **14:00 y 18:00 (Uruguay)** genera un reel de máx. 25 s (o hasta donde termine el audio) y lo publica en tu **Página** de Facebook.
 
 ## 1. Subir el repo
 1. Creá un repo en GitHub y subí todo este contenido.
@@ -30,7 +30,8 @@ Solo funciona con **Páginas** (no perfiles personales).
 Actions → *Reels diarios* → **Run workflow** con `dry_run` activado: te deja `reel_preview.mp4` para descargar. Después probá con `dry_run` apagado (publica de inmediato).
 
 ## Notas
-- El cron arranca 15 min antes y el script espera al horario exacto (GitHub suele atrasar los cron).
+- Una ejecución diaria (07:17 UY, con respaldo 09:17) genera los 2 reels de hoy y los deja **programados en Facebook** (14:00-14:08 y 18:00-18:08 UY). Facebook los publica a la hora, sin depender de GitHub. Funciona en repo privado.
+- Primera vez: Run workflow con `test_schedule` para verificar que Facebook acepte programar Reels.
 - Las canciones rotan sin repetirse hasta que suenan todas (`state/used.json`).
 - Ajustes de estilo (zoom, oscuridad, púrpura, espejo, tamaños) en `src/config.py`.
-- Repo público = minutos gratis ilimitados. En privado tenés 2000 min/mes; esto gasta ~900.
+- Repo privado: la ejecución diaria dura ~20-30 min (unos 600-900 min/mes de los 2000 gratis).
